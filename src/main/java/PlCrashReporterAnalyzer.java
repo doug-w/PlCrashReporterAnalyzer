@@ -1,7 +1,14 @@
+package com.wyntersoft.crashreporteranalyzer;
+
+import com.wyntersoft.crashreporteranalyzer.*;
+
+import com.google.protobuf.InvalidProtocolBufferException;
 import coop.plausible.crashreporter.*;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 
 /**
  * Created with IntelliJ IDEA.
@@ -11,14 +18,28 @@ import java.io.FileNotFoundException;
  * To change this template use File | Settings | File Templates.
  */
 public class PlCrashReporterAnalyzer {
+    private final String unknownString = "???";
+
+    public PlCrashReporterAnalyzer(ByteBuffer buffer) throws InvalidProtocolBufferException, IOException {
+        InitFromByteBuffer(buffer);
+    }
 
     public PlCrashReporterAnalyzer(byte[] buffer) throws Exception
     {
-        report = CrashReport_pb.CrashReport.parseFrom(buffer);
+        InitFromByteBuffer(ByteBuffer.wrap(buffer));
     }
 
     public PlCrashReporterAnalyzer(String path) throws Exception {
-        report = CrashReport_pb.CrashReport.parseFrom(new FileInputStream(path));
+        FileChannel inChannel = new RandomAccessFile(path, "r").getChannel();
+
+        if (inChannel.size() > Integer.MAX_VALUE) {
+            throw new IOException("Dump file too large");
+        }
+
+        ByteBuffer buffer = ByteBuffer.allocate((int)inChannel.size());
+        int nBytesRead = inChannel.read(buffer);
+
+        InitFromByteBuffer(buffer);
     }
 
     public String getOperatingSystem() {
@@ -40,5 +61,30 @@ public class PlCrashReporterAnalyzer {
         return null;
     }
 
+    public String getHardwareModel() {
+        return unknownString;
+    }
+
+    public String getCrashReport() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Incident Identifier: [TODO]\n")
+                .append("CrashReporter Key:   [TODO]\n")
+                .append("Hardware Model:      "+getHardwareModel()+"\n");
+
+        return sb.toString();
+    }
+    private void InitFromByteBuffer(ByteBuffer buffer) throws InvalidProtocolBufferException, IOException
+    {
+        this.header = PlCrashReportFileHeader.createFromByteBuffer(buffer);
+
+        if (!this.header.isValid()) {
+            throw new IOException("Invalid Crash Report");
+        }
+
+        this.report = CrashReport_pb.CrashReport.parseFrom(this.header.getData());
+
+    }
+
+    private PlCrashReportFileHeader header;
     private CrashReport_pb.CrashReport report;
 }
