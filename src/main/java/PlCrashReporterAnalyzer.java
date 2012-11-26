@@ -6,12 +6,15 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import coop.plausible.crashreporter.CrashReport_pb;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.BinaryImage;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Processor.TypeEncoding;
+import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Thread;
+import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Thread.StackFrame;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Date;
+import java.lang.Math;
 
 /**
  * Created with IntelliJ IDEA.
@@ -205,7 +208,71 @@ public class PlCrashReporterAnalyzer {
           .append("\n");
 
         // Exception code
+        sb.append(String.format("Exception Type:        %s\n", report.getSignal().getName()))
+          .append(String.format("Exception Codes:       %s at 0x%x\n", report.getSignal().getCode(), report.getSignal().getAddress()));
+
+        for(Thread thread : report.getThreadsList()) {
+            if (thread.getCrashed()) {
+                sb.append(String.format("Crashed Thread:        %s\n", thread.getThreadNumber()));
+                break;
+            }
+        }
+        sb.append("\n");
+
+        // Uncaught Exceptions
+        if (report.hasException()) {
+            sb.append("Application Specific Information:\n")
+              .append(String.format("*** Terminating app due to uncaught exception '%s', reason: '%s'\n",
+                    report.getException().getName(), report.getException().getReason()))
+              .append("\n");
+        }
+
+        // Threads
+        Thread crashedThread = null;
+        int maxThreadNum = 0;
+
+        for (Thread thread : report.getThreadsList()) {
+            if (thread.getCrashed()) {
+                sb.append(String.format("Thread %d Crashed:\n", thread.getThreadNumber()));
+                crashedThread = thread;
+            } else {
+                sb.append(String.format("Thread %d:\n", thread.getThreadNumber()));
+            }
+
+            long frameIdx = 0;
+            for(StackFrame frame : thread.getFramesList()) {
+                sb.append(getStackFrameInfo(frame, frameIdx));
+                frameIdx++;
+            }
+
+            maxThreadNum = Math.max(maxThreadNum, thread.getThreadNumber());
+
+            sb.append("\n");
+        }
         return sb.toString();
+    }
+
+    private String getStackFrameInfo(StackFrame frame, long frameIdx) {
+        String imageName = unknownString;
+        long baseAddress = 0;
+        long pcOffset = 0;
+
+        BinaryImage image = getImageForAddress(frame.getPc());
+        if (image != null) {
+            imageName = image.getName().substring(image.getName().lastIndexOf('/') + 1);
+            baseAddress = image.getBaseAddress();
+            pcOffset = frame.getPc() - baseAddress;
+        }
+
+        return String.format("%-4d%-36s0x%08x 0x%x + %d\n", frameIdx, imageName, frame.getPc(), baseAddress, pcOffset);
+    }
+
+    BinaryImage getImageForAddress(long address) {
+        for( BinaryImage image : report.getBinaryImagesList()) {
+            if (image.getBaseAddress() <= address && address < (image.getBaseAddress() + image.getSize()))
+                return image;
+        }
+        return null;
     }
 
     private void InitFromByteBuffer(ByteBuffer buffer) throws InvalidProtocolBufferException, IOException
@@ -218,7 +285,6 @@ public class PlCrashReporterAnalyzer {
 
         this.report = CrashReport_pb.CrashReport.parseFrom(this.header.getData());
     }
-
 
 
     private PlCrashReportFileHeader header;
