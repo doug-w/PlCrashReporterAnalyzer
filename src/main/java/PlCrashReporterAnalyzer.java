@@ -8,6 +8,7 @@ import coop.plausible.crashreporter.CrashReport_pb.CrashReport.BinaryImage;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Processor.TypeEncoding;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Thread;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Thread.StackFrame;
+import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Processor;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -249,6 +250,53 @@ public class PlCrashReporterAnalyzer {
 
             sb.append("\n");
         }
+
+        // Registers
+        if (crashedThread != null) {
+            sb.append(String.format("Thread %d crashed with %s Thread State:\n", crashedThread.getThreadNumber(), getCodeType()));
+
+            boolean lp64 = getCpuType().isLp64();
+            int regColumn = 0;
+            for(Thread.RegisterValue register : crashedThread.getRegistersList()) {
+                String reg_fmt;
+
+                /* Use 32-bit or 64-bit fixed width format for the register values */
+                if (lp64) {
+                    reg_fmt = "%6s: 0x%016x ";
+                } else {
+                    reg_fmt = "%6s: 0x%08x ";
+                }
+                /* Remap register names to match Apple's crash reports */
+                String regName = register.getName();
+
+                if (report.hasMachineInfo() &&
+                    report.getMachineInfo().getProcessor().getEncoding() == TypeEncoding.TYPE_ENCODING_MACH) {
+
+                    Processor processor = report.getMachineInfo().getProcessor();
+                    CpuType type = CpuType.valueOf((int)processor.getType());
+
+                    /* Apple uses 'ip' rather than 'r12' on ARM */
+                    if (type == CpuType.CPU_TYPE_ARM && regName.equals("r12")) {
+                        regName = "ip";
+                    }
+                }
+
+                sb.append(String.format(reg_fmt, regName, register.getValue()));
+
+                regColumn++;
+                if (regColumn == 4) {
+                    sb.append("\n");
+                    regColumn = 0;
+                }
+            }
+
+            if (regColumn != 0) {
+                sb.append("\n");
+            }
+
+            sb.append("\n");
+        }
+
         return sb.toString();
     }
 
@@ -285,6 +333,7 @@ public class PlCrashReporterAnalyzer {
 
         this.report = CrashReport_pb.CrashReport.parseFrom(this.header.getData());
     }
+
 
 
     private PlCrashReportFileHeader header;
