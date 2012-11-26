@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.Date;
 
 /**
  * Created with IntelliJ IDEA.
@@ -108,7 +109,7 @@ public class PlCrashReporterAnalyzer {
     }
 
     public CpuType getCpuType() {
-        for(BinaryImage image : this.report.getBinaryImagesList()) {
+        for(BinaryImage image : report.getBinaryImagesList()) {
             if (!image.hasCodeType())
                 continue;
 
@@ -119,7 +120,7 @@ public class PlCrashReporterAnalyzer {
                 return CpuType.valueOf((int)image.getCodeType().getType());
         }
 
-        switch (this.report.getSystemInfo().getArchitecture()) {
+        switch (report.getSystemInfo().getArchitecture()) {
             case ARMV6:
             case ARMV7:
                 return CpuType.CPU_TYPE_ARM;
@@ -145,26 +146,68 @@ public class PlCrashReporterAnalyzer {
             case CPU_TYPE_POWERPC:
                 return "PPC";
         }
-        return "Unknown ("+(int)this.report.getSystemInfo().getArchitecture().getNumber()+")";
+        return String.format("Unknown (%d)", (int)report.getSystemInfo().getArchitecture().getNumber());
     }
 
     public String getHardwareModel() {
-        if (this.report.hasMachineInfo() && this.report.getMachineInfo().getModel() != null)
-            return this.report.getMachineInfo().getModel();
+        if (report.hasMachineInfo() && report.getMachineInfo().getModel() != null)
+            return report.getMachineInfo().getModel();
 
         return unknownString;
     }
 
     public String getCrashReport() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Incident Identifier: [TODO]\n")
-                .append("CrashReporter Key:   [TODO]\n")
-                .append("Hardware Model:      "+getHardwareModel()+"\n")
-                .append(getCodeType()+"\n");
+        // Preamble
+        sb.append("Incident Identifier:   [TODO]\n")
+          .append("CrashReporter Key:     [TODO]\n");
 
+        // Machine info
+        sb.append(String.format("Hardware Model:        %s\n",getHardwareModel()));
 
+        // Process Info
+        String processName = unknownString;
+        String processId = unknownString;
+        String processPath = unknownString;
+        String parentProcessName = unknownString;
+        String parentProcessId = unknownString;
+        if (report.hasProcessInfo()) {
+            if (report.getProcessInfo().getProcessName() != null)
+                processName = report.getProcessInfo().getProcessName();
+
+            processId = String.format("%d", report.getProcessInfo().getProcessId());
+
+            if (report.getProcessInfo().hasProcessPath())
+                processPath = report.getProcessInfo().getProcessPath();
+
+            if (report.getProcessInfo().getParentProcessName() != null)
+                parentProcessName = report.getProcessInfo().getParentProcessName();
+
+            parentProcessId = String.format("%d", report.getProcessInfo().getParentProcessId());
+        }
+
+        sb.append(String.format("Process:               %s [%s]\n", processName, processId))
+          .append(String.format("Path:                  %s\n", processPath))
+          .append(String.format("Identifier:            %s\n", report.getApplicationInfo().getIdentifier()))
+          .append(String.format("Version:               %s\n", report.getApplicationInfo().getVersion()))
+          .append(String.format("Code Type:             %s\n", getCodeType()))
+          .append(String.format("Parent Process         %s [%s]\n", parentProcessName, parentProcessId))
+          .append("\n");
+
+        // System info
+        String osBuild = unknownString;
+        if (report.getSystemInfo().hasOsBuild())
+            osBuild = report.getSystemInfo().getOsBuild();
+
+        sb.append(String.format("Date/Time:             %s\n", new Date(report.getSystemInfo().getTimestamp() * 1000)))
+          .append(String.format("OS Version:            %s %s (%s)\n", getOperatingSystem(), report.getSystemInfo().getOsVersion(), osBuild))
+          .append("Report Version:        104\n")
+          .append("\n");
+
+        // Exception code
         return sb.toString();
     }
+
     private void InitFromByteBuffer(ByteBuffer buffer) throws InvalidProtocolBufferException, IOException
     {
         this.header = PlCrashReportFileHeader.createFromByteBuffer(buffer);
@@ -175,6 +218,7 @@ public class PlCrashReporterAnalyzer {
 
         this.report = CrashReport_pb.CrashReport.parseFrom(this.header.getData());
     }
+
 
 
     private PlCrashReportFileHeader header;
