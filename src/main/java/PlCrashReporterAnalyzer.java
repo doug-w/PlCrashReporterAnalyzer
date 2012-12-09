@@ -480,7 +480,7 @@ public class PlCrashReporterAnalyzer {
         StringBuilder sb = new StringBuilder();
 
         Thread thread = getCrashedThread();
-        // If a thread crashed use the top 5 stack frames of it
+        // If a thread crashed use the top stack frames of it
         if (thread != null) {
             for(int i = 0 ; i < Math.min(thread.getFramesCount(), NUM_FINGERPRINT_FRAMES) ; i++) {
                 sb.append(getStackFrameInfo(thread.getFrames(i), i));
