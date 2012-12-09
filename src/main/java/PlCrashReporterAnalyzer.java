@@ -1,5 +1,6 @@
 package com.wyntersoft.crashreporteranalyzer;
 
+import javax.xml.bind.annotation.adapters.HexBinaryAdapter;
 import com.google.common.base.Function;
 import com.google.common.collect.Ordering;
 import com.wyntersoft.crashreporteranalyzer.*;
@@ -12,10 +13,13 @@ import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Thread;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Thread.StackFrame;
 import coop.plausible.crashreporter.CrashReport_pb.CrashReport.Processor;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.CharBuffer;
 import java.nio.channels.FileChannel;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Date;
 import java.lang.Math;
 import java.util.List;
@@ -30,6 +34,7 @@ import java.util.UUID;
  */
 public class PlCrashReporterAnalyzer {
     private final String unknownString = "???";
+    static final int NUM_FINGERPRINT_FRAMES = 7;
     static final int CPU_ARCH_ABI64	= 0x01000000;		/* 64 bit ABI */
 
     public enum CpuType {
@@ -244,34 +249,23 @@ public class PlCrashReporterAnalyzer {
           .append("Report Version:        104\n")
           .append("\n");
 
-        // Exception code
-        sb.append(String.format("Exception Type:        %s\n", report.getSignal().getName()))
-          .append(String.format("Exception Codes:       %s at 0x%x\n", report.getSignal().getCode(), report.getSignal().getAddress()));
+        sb.append(getSignalString());
 
-        for(Thread thread : report.getThreadsList()) {
-            if (thread.getCrashed()) {
-                sb.append(String.format("Crashed Thread:        %s\n", thread.getThreadNumber()));
-                break;
-            }
+        Thread crashedThread = getCrashedThread();
+        if (crashedThread != null) {
+                sb.append(String.format("Crashed Thread:        %s\n", crashedThread.getThreadNumber()));
         }
         sb.append("\n");
 
         // Uncaught Exceptions
-        if (report.hasException()) {
-            sb.append("Application Specific Information:\n")
-              .append(String.format("*** Terminating app due to uncaught exception '%s', reason: '%s'\n",
-                    report.getException().getName(), report.getException().getReason()))
-              .append("\n");
-        }
+        sb.append(getExceptionString());
 
         // Threads
-        Thread crashedThread = null;
         int maxThreadNum = 0;
 
         for (Thread thread : report.getThreadsList()) {
             if (thread.getCrashed()) {
                 sb.append(String.format("Thread %d Crashed:\n", thread.getThreadNumber()));
-                crashedThread = thread;
             } else {
                 sb.append(String.format("Thread %d:\n", thread.getThreadNumber()));
             }
@@ -432,7 +426,7 @@ public class PlCrashReporterAnalyzer {
 
         BinaryImage image = getImageForAddress(frame.getPc());
         if (image != null) {
-            imageName = image.getName().substring(image.getName().lastIndexOf('/') + 1);
+            imageName = getLastPathComponent(image.getName());
             baseAddress = image.getBaseAddress();
             pcOffset = frame.getPc() - baseAddress;
         }
@@ -459,7 +453,47 @@ public class PlCrashReporterAnalyzer {
         this.report = CrashReport_pb.CrashReport.parseFrom(this.header.getData());
     }
 
+    private String getLastPathComponent(String path) {
+        return path.substring(path.lastIndexOf('/') + 1);
+    }
 
+    private String getSignalString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Exception Type:        %s\n", report.getSignal().getName()))
+          .append(String.format("Exception Codes:       %s at 0x%x\n", report.getSignal().getCode(), report.getSignal().getAddress()));
+        return sb.toString();
+    }
+
+    private Thread getCrashedThread() {
+        for(Thread thread : report.getThreadsList()) {
+            if (thread.getCrashed()) {
+                return thread;
+            }
+        }
+        return null;
+    }
+
+    private String getCrashFingerPrint() throws NoSuchAlgorithmException {
+        MessageDigest messageDigest = MessageDigest.getInstance("SHA-1");
+
+        StringBuilder sb = new StringBuilder();
+
+        Thread thread = getCrashedThread();
+        // If a thread crashed use the top 5 stack frames of it
+        if (thread != null) {
+            for(int i = 0 ; i < Math.min(thread.getFramesCount(), NUM_FINGERPRINT_FRAMES) ; i++) {
+                sb.append(getStackFrameInfo(thread.getFrames(i), i));
+            }
+        // Otherwise use the signal and exception info
+        } else {
+            sb.append(getSignalString());
+            sb.append(getExceptionString());
+        }
+
+        messageDigest.update(sb.toString().getBytes());
+        return new HexBinaryAdapter().marshal(messageDigest.digest());
+
+    }
 
     private PlCrashReportFileHeader header;
     private CrashReport_pb.CrashReport report;
