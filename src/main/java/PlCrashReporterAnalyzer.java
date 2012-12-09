@@ -474,7 +474,7 @@ public class PlCrashReporterAnalyzer {
         return null;
     }
 
-    private String getCrashFingerPrint() throws NoSuchAlgorithmException {
+    public String getCrashFingerPrint() throws NoSuchAlgorithmException {
         MessageDigest messageDigest = MessageDigest.getInstance("SHA-1");
 
         StringBuilder sb = new StringBuilder();
