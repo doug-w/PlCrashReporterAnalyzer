@@ -1,5 +1,7 @@
 package com.wyntersoft.crashreporteranalyzer;
 
+import com.google.common.base.Function;
+import com.google.common.collect.Ordering;
 import com.wyntersoft.crashreporteranalyzer.*;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -16,6 +18,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Date;
 import java.lang.Math;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Created with IntelliJ IDEA.
@@ -68,6 +72,38 @@ public class PlCrashReporterAnalyzer {
         public int getValue() { return code; }
 
         boolean isLp64() { return (this.getValue() & CPU_ARCH_ABI64) !=0;}
+
+    }
+
+    public enum CpuSubTypeArm {
+        CPU_SUBTYPE_ARM_ALL     (0),
+        CPU_SUBTYPE_ARM_V4T     (5),
+        CPU_SUBTYPE_ARM_V6      (6),
+        CPU_SUBTYPE_ARM_V5TEJ   (7),
+        CPU_SUBTYPE_ARM_XSCALE	(8),
+        CPU_SUBTYPE_ARM_V7		(9),
+        CPU_SUBTYPE_ARM_V7F		(10), /* Cortex A9 */
+        CPU_SUBTYPE_ARM_V7S     (11),
+        CPU_SUBTYPE_ARM_V7K		(12); /* Kirkwood40 */
+
+        public static CpuSubTypeArm valueOf(int value) {
+            switch (value) {
+                case 0: return CPU_SUBTYPE_ARM_ALL;
+                case 5: return CPU_SUBTYPE_ARM_V4T;
+                case 6: return CPU_SUBTYPE_ARM_V6;
+                case 7: return CPU_SUBTYPE_ARM_V5TEJ;
+                case 8: return CPU_SUBTYPE_ARM_XSCALE;
+                case 9: return CPU_SUBTYPE_ARM_V7;
+                case 10:return CPU_SUBTYPE_ARM_V7F;
+                case 11:return CPU_SUBTYPE_ARM_V7S;
+                case 12:return CPU_SUBTYPE_ARM_V7K;
+
+                default: return null;
+            }
+        }
+        private int code;
+        CpuSubTypeArm(int c) { code = c;}
+        public int getValue() { return code; }
 
     }
 
@@ -297,6 +333,95 @@ public class PlCrashReporterAnalyzer {
             sb.append("\n");
         }
 
+        /* Images. The iPhone crash report format sorts these in ascending order, by the base address */
+        sb.append("Binary Images:\n");
+
+        List<BinaryImage> imageList = Ordering.natural().onResultOf(new Function<BinaryImage, Long>() {
+            public Long apply(BinaryImage foo) {
+                return new Long(foo.getBaseAddress());
+            }
+        }).sortedCopy(report.getBinaryImagesList());
+        for (BinaryImage image : imageList) {
+            String uuid = unknownString;
+            if (image.hasUuid()) {
+                ByteBuffer uuidBytes = ByteBuffer.allocate(16);
+                image.getUuid().copyTo(uuidBytes);
+                uuidBytes.order(ByteOrder.BIG_ENDIAN);
+                uuidBytes.flip();
+                // DJW TODO Specify endianess to check
+                UUID uuid1 = new UUID(uuidBytes.asLongBuffer().get(), uuidBytes.asLongBuffer().get());
+                uuid = uuid1.toString().replace("-", "");
+            }
+
+            String archName = unknownString;
+            if (image.hasCodeType() && image.getCodeType().getEncoding() == TypeEncoding.TYPE_ENCODING_MACH) {
+
+                switch (CpuType.valueOf((int)image.getCodeType().getType())) {
+                    case CPU_TYPE_ARM:
+                        switch (CpuSubTypeArm.valueOf((int)image.getCodeType().getSubtype())) {
+                            case CPU_SUBTYPE_ARM_V6:
+                                archName = "armv6";
+                                break;
+                            case CPU_SUBTYPE_ARM_V7:
+                                archName = "armv7";
+                                break;
+                            case CPU_SUBTYPE_ARM_V7S:
+                                archName = "armv7s";
+                                break;
+                            default:
+                                archName = "arm-unknown";
+                        }
+                        break;
+                    case CPU_TYPE_X86:
+                        archName = "i386";
+                        break;
+                    case CPU_TYPE_X86_64:
+                        archName = "x86_64";
+                        break;
+                    case CPU_TYPE_POWERPC:
+                        archName = "powerpc";
+                        break;
+
+                    default:
+                        // Use the default archName value (initialized above).
+                        break;
+                }
+            }
+
+            /* Determine if this is the main executable */
+            String binaryDesignator = " ";
+            if (image.getName().equals(report.getProcessInfo().getProcessPath()))
+                binaryDesignator = "+";
+
+            String fmt = null;
+            if(getCpuType().isLp64()) {
+                fmt = "%18#x - 0x%18#x %s%s %s  <%s> %s\n";
+            } else {
+                fmt = "%#10x - %#10x %s%s %s  <%s> %s\n";
+            }
+            sb.append(String.format(fmt,
+                    image.getBaseAddress(),
+                    image.getBaseAddress() + (Math.max(1, image.getSize())-1),
+                    binaryDesignator,
+                    getLastPathComponent(image.getName()),
+                    archName,
+                    uuid,
+                    image.getName()
+            ));
+        }
+
+
+        return sb.toString();
+    }
+
+    private String getExceptionString() {
+        StringBuilder sb = new StringBuilder();
+        if (report.hasException()) {
+            sb.append("Application Specific Information:\n")
+              .append(String.format("*** Terminating app due to uncaught exception '%s', reason: '%s'\n",
+                    report.getException().getName(), report.getException().getReason()))
+              .append("\n");
+        }
         return sb.toString();
     }
 
