@@ -1,3 +1,3 @@
 [submodule "dependencies/plcrashreporter"]
 	path = dependencies/plcrashreporter
-	url = ssh://git@github.com/doug-w/plcrashreporter.git
+	url = https://code.google.com/p/plcrashreporter
