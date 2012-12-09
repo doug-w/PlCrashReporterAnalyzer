@@ -130,6 +130,7 @@ public class PlCrashReporterAnalyzer {
 
         ByteBuffer buffer = ByteBuffer.allocate((int)inChannel.size());
         int nBytesRead = inChannel.read(buffer);
+        inChannel.close();
 
         InitFromByteBuffer(buffer);
     }
