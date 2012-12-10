@@ -30,7 +30,6 @@ import java.util.UUID;
  * User: dwarren
  * Date: 11/25/12
  * Time: 8:40 AM
- * To change this template use File | Settings | File Templates.
  */
 public class PlCrashReporterAnalyzer {
     private final String unknownString = "???";
@@ -435,6 +434,21 @@ public class PlCrashReporterAnalyzer {
         return String.format("%-4d%-36s0x%08x 0x%x + %d\n", frameIdx, imageName, frame.getPc(), baseAddress, pcOffset);
     }
 
+    private String getStackFrameBrief(StackFrame frame, long frameidx) {
+        String imageName = unknownString;
+        long baseAddress = 0;
+        long pcOffset = 0;
+
+        BinaryImage image = getImageForAddress(frame.getPc());
+        if (image != null) {
+            imageName = getLastPathComponent(image.getName());
+            baseAddress = image.getBaseAddress();
+            pcOffset = frame.getPc() - baseAddress;
+        }
+
+        return String.format("%d %s 0x%x + %d\n", frameidx, imageName, baseAddress, pcOffset);
+    }
+
     BinaryImage getImageForAddress(long address) {
         for( BinaryImage image : report.getBinaryImagesList()) {
             if (image.getBaseAddress() <= address && address < (image.getBaseAddress() + image.getSize()))
@@ -483,7 +497,7 @@ public class PlCrashReporterAnalyzer {
         // If a thread crashed use the top stack frames of it
         if (thread != null) {
             for(int i = 0 ; i < Math.min(thread.getFramesCount(), NUM_FINGERPRINT_FRAMES) ; i++) {
-                sb.append(getStackFrameInfo(thread.getFrames(i), i));
+                sb.append(getStackFrameBrief(thread.getFrames(i), i));
             }
         // Otherwise use the signal and exception info
         } else {
